@@ -53,7 +53,7 @@ class WikiIter(object):
                         gettext=False
                         writeText=True
         
-                # Have reached start if content, looking for end
+                # Have reached start of content, looking for end
                 if writeText:
                     if line[-7:] == "</text>":
                         content+=line[:-7]
