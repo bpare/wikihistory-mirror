@@ -10,14 +10,19 @@ import requests
 import codecs
 import textProcessor as proc
 import networkx as nx
+from pymongo import MongoClient
 from Patch import PatchSet, PatchModel
 
-
+##
+# Wiki options
 WIKI = 'https://en.wikipedia.org/'
 LIMIT='1000'
 
-
-
+##
+# Mongo options
+HOST = 'localhost'
+PORT = 27017
+DB_NAME = 'wikihistory_db'
 
 def downloadHistory(title):
     """
@@ -25,14 +30,31 @@ def downloadHistory(title):
             full_histories
     """
     print "Downloading . . ."
+    '''
     offset='0'
     i=0
     while offset!='1':
         print "Starting set " + str(i) + " . . ."
         i+=1
         offset=downloadPartial(title, offset)
+    '''
+    title=title.replace(' ', '_')
+    api = WIKI+ 'w/index.php?title=Special:Export&pages=' + title + \
+                '&limit='+LIMIT+'&action=submit'
 
-
+    # Set up folder for the new history, if needed
+    if not os.path.isdir('full_histories'):
+        os.mkdir('full_histories')
+    if not os.path.isdir('full_histories/'+title):
+        os.mkdir('full_histories/'+title)
+    
+    cachefile = 'full_histories/'+ title+'/'+title+'.xml'
+    
+    # Download and save history
+    r=requests.post(api, data="")
+    file=codecs.open(cachefile, "w", "utf-8")
+    file.write(r.text)
+    file.close()
 
 
 def downloadPartial(title, offset):
@@ -97,6 +119,8 @@ def applyModel(title, remove):
         os.mkdir('content')
 
     print "Setting up distance comparison . . ."
+    
+    proc.cleanCorpus(title)
 
     # Set up semantic distance comparison
     if not os.path.isdir("dictionaries") or not os.path.isfile('dictionaries/'+title+'.dict'):
@@ -126,10 +150,11 @@ def applyModel(title, remove):
     model = PatchModel()
     prev = ""
     pid=0
-    offset='0'
     wikiit=proc.WikiIter()
-    
-    for (rvid, timestamp, content) in wikiit.__iter__(title, offset):
+    prev_index = None
+    set_id = 0
+
+    for (rvid, timestamp, content) in wikiit.__iter__(title):
        
         # Apply to the PatchModel and write dependencies to graph.
         if remove and rvid in remList:
@@ -137,19 +162,20 @@ def applyModel(title, remove):
     
         else:
             # Get semantic distance
-            dist = 1-proc.scoreDoc(title, prev, content, dictionary, tfidf, lsi)[0][1]
+            sims, prev_index = proc.scoreDoc(title, prev_index, content, dictionary, tfidf, lsi)
             
+            dists = [1-sim for sim in sims]
             # Apply PatchModel
             content=content.encode("ascii", "replace")
-            contentList=content.split()
-            prevList=prev.split()
-            ps = PatchSet.psdiff(pid, prevList, contentList)
+            content_split=content.split()
+            prev_split=prev.split()
+            ps = PatchSet.psdiff(pid, set_id, prev_split, content_split)
             pid+=len(ps.patches)
+            set_id += 1
             for p in ps.patches:
-                model.apply_patch(p, timestamp, dist) #list of out-edges from rev
+                model.apply_patch(p, timestamp, dists) #list of out-edges from rev
             
             prev = content
-        
         
     if remove:
         cachefile = title.replace(" ", "_")+'_rem.txt'
@@ -177,6 +203,7 @@ def applyModel(title, remove):
 
 
 
+#TODO; rewrite
 def getRemlist(title):
     """
         Gets a list of ids of revisions that are bot reverts
@@ -187,9 +214,9 @@ def getRemlist(title):
     remList = []
     title=title.replace(" ", "_")
     
-    while os.path.isfile('full_histories/'+title+'/'+title+'|'+offset+'.xml'):
+    while os.path.isfile('full_histories/'+title+'/'+title+'.xml'):
         
-        file = codecs.open('full_histories/'+title+'/'+title+'|'+offset+'.xml', "r", "utf-8")
+        file = codecs.open('full_histories/'+title+'/'+title+'.xml', "r", "utf-8")
         
         username=False
     
@@ -234,7 +261,7 @@ def readGraph(title, remove):
 
     assert os.path.isfile(file), "Graph file does not exist."
 
-    return nx.read_gml(file)
+    return nx.read_gml(file, label='id')
 
 
 
@@ -299,7 +326,6 @@ def wiki2graph(title, remove, new):
     else:
         file = title.replace(" ", "_")+".txt"
 
-
     # Check if files exist to avoid reapplying model
     if not new and \
         os.path.isdir('GMLs') and os.path.isfile("GMLs/"+file) and \
@@ -309,7 +335,6 @@ def wiki2graph(title, remove, new):
         graph = readGraph(title, remove)
         content = readContent(title, remove)
         model = readModel(title, remove)
-
 
 
     # Apply model. Download full history if necessary

@@ -24,7 +24,7 @@ class Patch:
         A Patch is a contiguous block of added or deleted words
             representing a single edit.
     """
-    def __init__(self, pid, ptype, start, end):
+    def __init__(self, pid, ptype, start, end, set_id):
         assert ptype == PatchType.ADD or ptype == PatchType.DELETE
         assert start >= 0
         assert end > start
@@ -34,6 +34,7 @@ class Patch:
         self.start = start
         self.end = end
         self.length = end - start
+        self.set_id = set_id
 
 
 
@@ -46,17 +47,18 @@ class PatchSet:
         Each Patch implicitly depend on preceding Patches.
     """
 
-    def __init__(self):
+    def __init__(self, id):
         self.patches = []
+        self.id = id
 
     @classmethod
-    def psdiff(cls, startid, old, new):
+    def psdiff(cls, startid, set_id, old, new):
         """
             Compares 2 vesions of text at a word level to identify 
                 the individual edits (insertions and deletions).
         """
         ptype = None
-        ps = cls()
+        ps = cls(set_id)
         start = None
         pid = startid
 
@@ -69,7 +71,7 @@ class PatchSet:
             if line[0] == ' ':
                 # If equal, terminate any current patch.
                 if ptype is not None:
-                    ps.append_patch(Patch(pid, ptype, start, index))
+                    ps.append_patch(Patch(pid, ptype, start, index, ps.id))
                     pid+=1
                     if ptype == PatchType.DELETE:
                         index = start
@@ -78,7 +80,7 @@ class PatchSet:
             elif line[0] == '+':
                 # If addition, terminate any current DELETE patch.
                 if ptype == PatchType.DELETE:
-                    ps.append_patch(Patch(pid, ptype, start, index))
+                    ps.append_patch(Patch(pid, ptype, start, index, ps.id))
                     pid+=1
                     index = start
                     ptype = None
@@ -90,7 +92,7 @@ class PatchSet:
             elif line[0] == '-':
                 # If deletion, terminate any current ADD patch.
                 if ptype == PatchType.ADD:
-                    ps.append_patch(Patch(pid, ptype, start, index))
+                    ps.append_patch(Patch(pid, ptype, start, index, ps.id))
                     pid+=1
                     ptype = None
                 # Begin a new DELETE patch, or extend an existing one.
@@ -102,7 +104,7 @@ class PatchSet:
 
         # Terminate and add any remaining patch.
         if ptype is not None:
-            ps.append_patch(Patch(pid, ptype, start, index))
+            ps.append_patch(Patch(pid, ptype, start, index, ps.id))
 
         return ps
 
@@ -121,11 +123,11 @@ class PatchModel:
     graph = nx.DiGraph()
 
 
-    def apply_patch(self, p, timestamp, dist):
+    def apply_patch(self, p, timestamp, dists):
         """
             Adds Patch, p, to the model and graph
         """
-        self.graph.add_node(p.pid, time = timestamp, size=p.length)
+        self.graph.add_node(p.pid, setid = p.set_id, time = timestamp, size=p.length)
         if not self.model:
             self.model.append((p.end, p.pid))
         
@@ -146,7 +148,7 @@ class PatchModel:
                 else:
                     start=self.model[sin-1][0]
                 length=self.model[sin][0]-start
-                self.graph.add_edge(p.pid, pid, prob=1.0, dist=dist)
+                self.graph.add_edge(p.pid, pid, prob=1.0, dist=dists[self.graph.node[pid]['setid']])
 
             # Case 2: Insertion between 2 edits or at the end of the document
             elif (ein-sin)==1:
@@ -166,7 +168,7 @@ class PatchModel:
                     length=end-nstart
                     nstart=end
                     prob=float(length)/total
-                    self.graph.add_edge(p.pid, pid, prob=prob, dist=dist)
+                    self.graph.add_edge(p.pid, pid, prob=prob, dist=dists[self.graph.node[pid]['setid']])
 
             # Case 3: Replacement, insertion depends on deletions
             else:
@@ -196,7 +198,7 @@ class PatchModel:
                     if length==0:
                         length=self.graph.node[pid]['size']
                         prob=float(length)/total
-                        self.graph.add_edge(p.pid, pid, prob=prob, dist=dist)
+                        self.graph.add_edge(p.pid, pid, prob=prob, dist=dists[self.graph.node[pid]['setid']])
 
 
 
@@ -253,7 +255,7 @@ class PatchModel:
                     length=self.graph.node[pid]['size']
                 prob=float(length)/total
 
-                self.graph.add_edge(p.pid, pid, prob=prob, dist=dist)
+                self.graph.add_edge(p.pid, pid, prob=prob, dist=dists[self.graph.node[pid]['setid']])
 
 
             # Adjust indices to include Patches that end where p starts

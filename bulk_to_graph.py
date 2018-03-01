@@ -11,10 +11,8 @@ import networkx as nx
 from Patch import PatchSet, PatchModel
 import WikiObject
 
-DATA_DIR = 
-def applyModel(title, remove):
 
-def getRemlist(title):
+DATA_DIR = 
 
 def readGraph(title, remove):
 
@@ -32,23 +30,15 @@ def wiki2graph(title, remove, download, process, new):
 
     wiki_processor = WikiProcessor(data_dir, title if title != "-a" else None)
 
-    if download:
-        wiki_processor.download(force = True)
-    else:
-        wiki_processor.download()
 
-    if process: 
-        wiki_processor.process_dumps(force = True, process_count = 4)
-    else:
-        wiki_processor.process_dumps(process_count = 4)
+    # Apply model. Download full history if necessary
+     wiki_processor.download(force = True) if download else wiki_processor.download()
 
-    if graphs:
-        wiki_processor.generate_graphs(force = True)
-    else:
-        scores = wiki_processor.generate_graphs()
+     wiki_processor.process_dumps(force = True, process_count = 4) if process else wiki_processor.process_dumps(process_count = 4)
 
+    (graph, content, model) = wiki_processor.applyModel()
 
-
+    return graph, content, model
 
 
 
@@ -56,7 +46,7 @@ def parse_args():
     """parse_args parses sys.argv for bulk2graph."""
     # Help Menu
     parser = argparse.ArgumentParser(usage='%prog [options] title')
-    parser.add_argument('title', nargs=1, default='-a', help='article title, \'-a\' for all articles')
+    #parser.add_argument('title', nargs=1, default='-a', help='article title, \'-a\' for all articles')
     parser.add_argument('-r', '--remove',
                       action='store_true', dest='remove', default=False,
                       help='remove mass deletions')

@@ -3,73 +3,23 @@
 import gensim
 import os
 import codecs
+import wiki_extractor
+from pymongo import MongoClient
 
+##
+# Mongo options
+HOST = 'localhost'
+PORT = 27017
+DB_NAME = 'wikihistory_db'
 
 class WikiIter(object):
 
-    def __iter__(self, title, offset):
-
-        title=title.replace(" ", "_")
-
-        getid = True # can read id from doc
-        gettime = False # have id ready to use, can read time from doc 
-        gettext= False   # have an id ready to use
-        process = False  # ready to use content
-        writeText= False  # adding to current content
+    def __iter__(self, title):
+        mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
+        cursor = mongo_collection.find({}, {_id: 1, timestamp:1, text: 1}).noCursorTimeout()
+        for item in cursor:
+            yield item['_id'], item['timestamp'], item['text']
         
-        while os.path.isfile('full_histories/'+title+'/'+title+'|'+offset+'.xml'):
-            historyFile=codecs.open('full_histories/'+title+'/'+title+'|'+offset+'.xml', "r", "utf-8")
-        
-            line = historyFile.readline().strip()
-            while line[:4] != "<id>":
-                line=historyFile.readline().strip()
-
-            for line in historyFile:
-                line=line.strip()
-
-                # Gets the next revision id
-                if getid:
-                    if line[:4] == "<id>":
-                        rvid = line[4:-5]
-                        getid=False
-                        gettime=True
-
-                # Gets the timestamp of the revision
-                if gettime:
-                    if line[:11] == "<timestamp>":
-                        timestamp = line[11:-12]
-                        offset=timestamp
-                        gettime = False
-                        gettext=True
-
-                # Have an id ready to use, looking for start of content
-                if gettext:
-                    if line[:5] == "<text":
-                        content= ""
-                        line = line.split('">')
-                        if len(line) == 1:
-                            line += [""]
-                        line = line[1]+"\n"
-                        gettext=False
-                        writeText=True
-        
-                # Have reached start of content, looking for end
-                if writeText:
-                    if line[-7:] == "</text>":
-                        content+=line[:-7]
-                        writeText=False
-                        process=True
-                    else:
-                        content+=line+"\n"
-                
-
-                if process:
-                    getid=True
-                    process=False
-                    content = gensim.corpora.wikicorpus.filter_wiki(content)
-                    yield rvid, timestamp, content
-
-        historyFile.close()
 
 class MyCorpus(object):
     def __init__(self, wikiiter, dictionary):
@@ -80,6 +30,12 @@ class MyCorpus(object):
             yield self.dictionary.doc2bow(doc.split())
 
 
+def cleanCorpus(title):
+    mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
+    wiki_extractor.process_dump('full_histories/'+title+'/'+title+'.xml', \
+                                None, None, mongo_collection)
+
+
 def saveDictionary(title):
     """
     """
@@ -88,7 +44,7 @@ def saveDictionary(title):
 
     wiki = WikiIter()
     dictionary=gensim.corpora.Dictionary(content.lower().split() 
-            for (rvid, timestamp, content) in wiki.__iter__(title, "0"))
+            for (rvid, timestamp, content) in wiki.__iter__(title))
     stoplist=set('for a of the and to in'.split())
 
     stop_ids=[dictionary.token2id[stopword] for stopword in stoplist 
@@ -122,7 +78,7 @@ def saveCorpus(title, dictionary):
 
     wiki = WikiIter()
 
-    corpus=MyCorpus(wiki.__iter__(title, "0"), dictionary)
+    corpus=MyCorpus(wiki.__iter__(title), dictionary)
     file='corpus/' + title.replace(" ", "_")+'.mm'
     gensim.corpora.MmCorpus.serialize(file, corpus)
 
@@ -173,22 +129,23 @@ def loadLsi(title):
     return gensim.models.LsiModel.load(file)
 
 
-def scoreDoc(title, index, doc, dictionary, tfidf, lsi):
+def scoreDoc(title, prev_index, doc, dictionary, tfidf, lsi):
     """
     """
+    if prev_index is None:
+        index_bow=[dictionary.doc2bow([""])]
+        lsi_index=lsi[tfidf[index_bow]]
+        if not os.path.isdir('indexes'):
+            os.mkdir('indexes')
+        # index has to be a corpus, does not have to be the training corpus
+        prev_index=gensim.similarities.Similarity('indexes/'+title, lsi_index, 300)
+
     title=title.replace(" ", "_")
     # use 200-500 topics for tfidf
     doc_bow=dictionary.doc2bow(doc.lower().split())
-    index_bow=[dictionary.doc2bow(index.lower().split())]
-
-
     lsi_doc=lsi[tfidf[doc_bow]]
-    lsi_index=lsi[tfidf[index_bow]]
 
-    if not os.path.isdir('indexes'):
-        os.mkdir('indexes')
-    # index has to be a corpus, does not have to be the training corpus
-    index=gensim.similarities.Similarity('indexes/'+title, lsi_index, 300)
-    sims=index[lsi_doc]
-    return(list(enumerate(sims)))
+    sims=prev_index[lsi_doc]
+    prev_index.add_documents([lsi_doc])
+    return sims, prev_index
 

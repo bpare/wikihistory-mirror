@@ -16,7 +16,7 @@ def tHeight(graph):
         Returns a dictionary of the vertices and their weighted heights 
             from the first vertices at or after startDate.
     """
-    nodeList = nx.topological_sort(graph, reverse = True)
+    nodeList = list(reversed(list(nx.topological_sort(graph))))
     heightDict = {}
     stime=graph.node[0]['time']
     # Might need to redefine end time. Really should be date of download.
@@ -25,7 +25,7 @@ def tHeight(graph):
 
     for node in nodeList:
         height = 0
-        for (src, dst, prob) in graph.out_edges_iter(node, data='prob'):
+        for (src, dst, prob) in graph.out_edges(node, data='prob'):
             if type(dst) != int:
                 dst = int(dst.decode("utf-8"))
                 src = int(src.decode("utf-8"))
@@ -65,11 +65,11 @@ def getAllHeights(graph):
         Returns a dictionary of the vertices and their weighted heights 
             from the first vertex
     """     
-    nodeList = nx.topological_sort(graph, reverse = True)
+    nodeList = list(reversed(list(nx.topological_sort(graph))))
     heightDict = {}
     for node in nodeList:
         height = 0
-        for (src, dst, prob) in graph.out_edges_iter(node, data='prob'):
+        for (src, dst, prob) in graph.out_edges(node, data='prob'):
             if type(dst) != int:
                 dst = int(dst.decode("utf-8"))
                 src = int(src.decode("utf-8")) 
@@ -90,11 +90,11 @@ def getHeight(graph, startDate):
             from the first vertices at or after startDate.
     """
     startDate=ts.string2date(startDate)
-    nodeList = nx.topological_sort(graph, reverse = True)
+    nodeList = list(reversed(list(nx.topological_sort(graph))))
     heightDict = {}
     for node in nodeList:
         height = 0
-        for (src, dst, prob) in graph.out_edges_iter(node, data='prob'):
+        for (src, dst, prob) in graph.out_edges(node, data='prob'):
             if type(dst) != int:
                 dst = int(dst.decode("utf-8"))
                 src = int(src.decode("utf-8"))
@@ -103,7 +103,7 @@ def getHeight(graph, startDate):
             if date < startDate:
                 height=0
             else:
-                height += (heightDict[dst]+graph.edge[src][dst]['dist'])*prob 
+                height += (heightDict[dst]+graph.edges[src, dst]['dist'])*prob 
 
         if type(node)!=int:
             node = int(node.decode("utf-8"))
@@ -149,7 +149,7 @@ def parse_args():
                       action='store_true', dest='allrevs', default=False,
                       help='include all revisions')
     parser.add_argument('-s', '--start',
-                      dest='start', nargs=1, default='1-1-2001',
+                      dest='start', nargs=1, default=['1-1-2001'],
                       help='start date for height calculation')
     parser.add_argument('-sh', '--shade',
                       action='store_true', dest='shade', default=False,
