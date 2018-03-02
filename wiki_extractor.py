@@ -227,7 +227,9 @@ def get_url(uid):
 
 ##
 # Mongo options
-mongo_collection = None
+HOST = 'localhost'
+PORT = 27017
+DB_NAME = 'wikihistory_db'
 # =========================================================================
 #
 # MediaWiki Markup Grammar
@@ -525,17 +527,17 @@ class Extractor(object):
     """
     An extraction task on a article.
     """
-    def __init__(self, id, revid, title, timestamp, comment, lines):
+    def __init__(self, id, title, timestamp, comment, parentid, lines):
         """
         :param id: id of page.
         :param title: tutle of page.
         :param lines: a list of lines.
         """
         self.id = id
-        self.revid = revid
         self.title = title
         self.timestamp = timestamp
         self.comment = comment
+        self.parentid = parentid
         self.text = ''.join(lines)
         self.magicWords = MagicWords()
         self.frame = Frame()
@@ -549,17 +551,16 @@ class Extractor(object):
         :param out: a memory file
         :param text: the text of the page
         """
-        url = get_url(self.id)
+        #url = get_url(self.id)
         json_data = {
             '_id': self.id,
-            'url': url,
+            #'url': url,
             'title': self.title,
             'timestamp': self.timestamp,
             'comment': self.comment,
+            'parentid': self.parentid,
             'text': "\n".join(text)
         }
-        if options.print_revision:
-            json_data['revid'] = self.revid
         # We don't use json.dump(data, out) because we want to be
         # able to encode the string if the output is sys.stdout
         out_str = json.dumps(json_data, ensure_ascii=False)
@@ -2647,7 +2648,7 @@ def load_templates(file, output_file=None):
     if output_file:
         output = codecs.open(output_file, 'wb', 'utf-8')
     for page_count, page_data in enumerate(pages_from(file)):
-        id, revid, title, ns, page = page_data
+        id, title, ns, timestamp, comment, parentid, page = page_data
         if not output_file and (not options.templateNamespace or
                                 not options.moduleNamespace):  # do not know it yet
             # reconstruct templateNamespace and moduleNamespace from the first title
@@ -2684,18 +2685,20 @@ def load_templates(file, output_file=None):
 def pages_from(input):
     """
     Scans input extracting pages.
-    :return: (id, revid, title, namespace key, page), page is a list of lines.
+    :return: (id, title, namespace key, page), page is a list of lines.
     """
     # we collect individual lines, since str.join() is significantly faster
     # than concatenation
     page = []
-    id = None
     ns = '0'
     last_id = None
     revid = None
     inText = False
     redirect = False
     title = None
+    revision = False
+    parentid = None
+    comment = ''
     for line in input:
         if not isinstance(line, text_type): line = line.decode('utf-8')
         if '<' not in line:  # faster than doing re.search()
@@ -2706,12 +2709,11 @@ def pages_from(input):
         if not m:
             continue
         tag = m.group(2)
-        if tag == 'page':
+        if tag == 'revision':
             page = []
             redirect = False
-        elif tag == 'id' and not id:
-            id = m.group(3)
-        elif tag == 'id' and id:
+            revision = True
+        elif tag == 'id' and revision and not revid:
             revid = m.group(3)
         elif tag == 'title':
             title = m.group(3)
@@ -2719,6 +2721,8 @@ def pages_from(input):
             timestamp = m.group(3)
         elif tag == 'comment':
             comment = m.group(3)
+        elif tag == 'parentid':
+            parentid = m.group(3)
         elif tag == 'ns':
             ns = m.group(3)
         elif tag == 'redirect':
@@ -2738,25 +2742,25 @@ def pages_from(input):
             inText = False
         elif inText:
             page.append(line)
-        elif tag == '/page':
-            if id != last_id and not redirect:
-                yield (id, revid, title, ns, timestamp, comment, page)
-                last_id = id
-                ns = '0'
-            id = None
+        elif tag == '/revision':
+            if revid != last_id and not redirect:
+                yield (revid, title, ns, timestamp, comment, parentid, page)
+                last_id = revid
+            comment = ""
+            parentid = None
             revid = None
-            title = None
+            revision = False
             page = []
 
 
-def process_dump(input_file, template_file, process_count, mongo):
+def process_dump(input_file, template_file, process_count):
     """
     :param input_file: name of the wikipedia dump file; '-' to read from stdin
     :param template_file: optional file with template definitions.
     :param process_count: number of extraction processes to spawn.
     """
     if process_count == None:
-        default_process_count = max(1, cpu_count() - 1)
+        process_count = max(1, cpu_count() - 1)
     if input_file == '-':
         input = sys.stdin
     else:
@@ -2813,11 +2817,6 @@ def process_dump(input_file, template_file, process_count, mongo):
         template_load_elapsed = default_timer() - template_load_start
         logging.info("Loaded %d templates in %.1fs", len(options.templates), template_load_elapsed)
 
-
-    #create MongoDB connection
-
-    mongo_collection = mongo
-
     #todo: add indexes
 
     # process pages
@@ -2854,7 +2853,7 @@ def process_dump(input_file, template_file, process_count, mongo):
     # Mapper process
     page_num = 0
     for page_data in pages_from(input):
-        id, revid, title, ns, timestamp, comment, page = page_data
+        id, title, ns, timestamp, comment, parentid, page = page_data
         if keepPage(ns, page):
             # slow down
             delay = 0
@@ -2865,7 +2864,7 @@ def process_dump(input_file, template_file, process_count, mongo):
                     delay += 10
             if delay:
                 logging.info('Delay %ds', delay)
-            job = (id, revid, title, timestamp, comment, page, page_num)
+            job = (id, title, timestamp, comment, parentid, page, page_num)
             jobs_queue.put(job) # goes to any available extract_process
             page_num += 1
         page = None             # free memory
@@ -2898,17 +2897,20 @@ def extract_process(opts, i, jobs_queue):
     global options
     options = opts
 
-    createLogger(options.quiet, options.debug)
-
+    #createLogger(True, True)
     out = StringIO()                 # memory buffer
     
-    
+    mongo_db = MongoClient(HOST, PORT)[DB_NAME]
+
     while True:
-        job = jobs_queue.get()  # job is (id, title, page, page_num)
+        job = jobs_queue.get() 
         if job:
-            id, revid, title, timestamp, comment, page, page_num = job
+            id, title, timestamp, comment, parentid, page, page_num = job
+
+            mongo_collection = mongo_db[title.replace(' ', '_')]
+
             try:
-                e = Extractor(*job[:5]) # (id, revid, title, page)
+                e = Extractor(*job[:6]) # (id, title, timestamp, comment, parentid, page)
                 page = None              # free memory
                 e.extract(out)
                 text = out.getvalue()
@@ -2917,8 +2919,8 @@ def extract_process(opts, i, jobs_queue):
                 logging.exception('Processing page: %s %s', id, title)
 
             text_json = json.loads(text)
-
-            mongo_collection.replace_one({"_id"=text_json["_id"]}, text_json, upsert=True)
+            
+            mongo_collection.insert(text_json)
 
             out.truncate(0)
             out.seek(0)
@@ -2926,3 +2928,12 @@ def extract_process(opts, i, jobs_queue):
             logging.debug('Quit extractor')
             break
     out.close()
+
+
+def createLogger(quiet, debug):
+    logger = logging.getLogger()
+    if not quiet:
+        logger.setLevel(logging.INFO)
+    if debug:
+        logger.setLevel(logging.DEBUG)
+

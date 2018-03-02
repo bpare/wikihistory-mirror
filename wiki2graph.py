@@ -6,8 +6,6 @@
 
 import argparse
 import os
-import requests
-import codecs
 import textProcessor as proc
 import networkx as nx
 from pymongo import MongoClient
@@ -17,87 +15,6 @@ from Patch import PatchSet, PatchModel
 # Wiki options
 WIKI = 'https://en.wikipedia.org/'
 LIMIT='1000'
-
-##
-# Mongo options
-HOST = 'localhost'
-PORT = 27017
-DB_NAME = 'wikihistory_db'
-
-def downloadHistory(title):
-    """
-        Downloads the full history of Wikipedia page, title, into
-            full_histories
-    """
-    print "Downloading . . ."
-    '''
-    offset='0'
-    i=0
-    while offset!='1':
-        print "Starting set " + str(i) + " . . ."
-        i+=1
-        offset=downloadPartial(title, offset)
-    '''
-    title=title.replace(' ', '_')
-    api = WIKI+ 'w/index.php?title=Special:Export&pages=' + title + \
-                '&limit='+LIMIT+'&action=submit'
-
-    # Set up folder for the new history, if needed
-    if not os.path.isdir('full_histories'):
-        os.mkdir('full_histories')
-    if not os.path.isdir('full_histories/'+title):
-        os.mkdir('full_histories/'+title)
-    
-    cachefile = 'full_histories/'+ title+'/'+title+'.xml'
-    
-    # Download and save history
-    r=requests.post(api, data="")
-    file=codecs.open(cachefile, "w", "utf-8")
-    file.write(r.text)
-    file.close()
-
-
-def downloadPartial(title, offset):
-    """
-        Downloads up to 1000 revisions of a Wikipedia page, title
-            starting at offset.
-        Offset '0' gets the first revision.
-    """
-    title=title.replace(' ', '_')
-    api = WIKI+ 'w/index.php?title=Special:Export&pages=' + title + \
-                '&offset='+offset+'&limit='+LIMIT+'&action=submit'
-
-    # Set up folder for the new history, if needed
-    if not os.path.isdir('full_histories'):
-        os.mkdir('full_histories')
-    if not os.path.isdir('full_histories/'+title):
-        os.mkdir('full_histories/'+title)
-    
-    cachefile = 'full_histories/'+ title+'/'+title+'|'+offset+'.xml'
-    file=open(cachefile, "w")
-    
-    # Download and save history
-    r=requests.post(api, data="")
-    last=True
-    text=r.text.split('\n')
-    file=codecs.open(cachefile, "w", "utf-8")
-    for line in text:
-        if last:
-            if line.strip()=='<page>':
-                last=False
-        else:
-            if line.strip()[:11]=='<timestamp>':
-                date=line.strip(' ')
-                date=date[11:-12]
-        file.write(line+'\n')
-    file.close()
-
-    # Return offset of next revision
-    if last:
-        os.remove(cachefile)
-        return '1'
-    else:
-        return date
 
 
 
@@ -120,29 +37,36 @@ def applyModel(title, remove):
 
     print "Setting up distance comparison . . ."
     
-    proc.cleanCorpus(title)
+    #TODO find a way of confirming that there's stuff in the db
+    if not os.path.isdir("full_histories") or not os.path.isdir('full_histories/'+title):
+        proc.cleanCorpus(title)
 
     # Set up semantic distance comparison
     if not os.path.isdir("dictionaries") or not os.path.isfile('dictionaries/'+title+'.dict'):
-        proc.saveDictionary(title)
-    dictionary=proc.readDictionary(title)
+        dictionary = proc.saveAndReturnDictionary(title)
+    else:
+        dictionary = proc.readDictionary(title)
     
+    #TODO do we need to save dictionary/corpus?
     if not os.path.isdir("corpus") or not os.path.isfile('corpus/'+title+'.mm'):
-        proc.saveCorpus(title, dictionary)
-    corpus=proc.readCorpus(title)
+        corpus = proc.saveAndReturnCorpus(title, dictionary)
+    else:
+        corpus = proc.readCorpus(title)
     
     if not os.path.isdir("tfidf") or not os.path.isfile('tfidf/'+title+'.tfidf'):
-        proc.saveTfidf(title, corpus, True)
-    tfidf=proc.loadTfidf(title)
-    
+        tfidf = proc.saveAndReturnTfidf(title, corpus, True)
+    else:
+        tfidf = proc.loadTfidf(title)
+
     if not os.path.isdir("lsi") or not os.path.isfile('lsi/'+title+'.lsi'):
-        proc.saveLsi(title, tfidf, corpus, dictionary, 300)
-    lsi=proc.loadLsi(title)
+        lsi = proc.saveAndReturnLsi(title, tfidf, corpus, dictionary, 300)
+    else:
+        lsi = proc.loadLsi(title)
 
 
     # Get the list of vertices to remove
     if remove:
-        remList = getRemlist(title)
+        remList = proc.getRemlist(title)
        
 
     print "Applying model . . ."
@@ -150,11 +74,11 @@ def applyModel(title, remove):
     model = PatchModel()
     prev = ""
     pid=0
-    wikiit=proc.WikiIter()
+    wikiit=proc.WikiIter(title)
     prev_index = None
     set_id = 0
 
-    for (rvid, timestamp, content) in wikiit.__iter__(title):
+    for (rvid, timestamp, content) in wikiit.__iter__():
        
         # Apply to the PatchModel and write dependencies to graph.
         if remove and rvid in remList:
@@ -166,7 +90,7 @@ def applyModel(title, remove):
             
             dists = [1-sim for sim in sims]
             # Apply PatchModel
-            content=content.encode("ascii", "replace")
+            #content=content.encode("ascii", "replace")
             content_split=content.split()
             prev_split=prev.split()
             ps = PatchSet.psdiff(pid, set_id, prev_split, content_split)
@@ -203,47 +127,6 @@ def applyModel(title, remove):
 
 
 
-#TODO; rewrite
-def getRemlist(title):
-    """
-        Gets a list of ids of revisions that are bot reverts
-        or that were reverted by bots
-    """
-    print "Removing bot rv."
-    offset='0'
-    remList = []
-    title=title.replace(" ", "_")
-    
-    while os.path.isfile('full_histories/'+title+'/'+title+'.xml'):
-        
-        file = codecs.open('full_histories/'+title+'/'+title+'.xml', "r", "utf-8")
-        
-        username=False
-    
-        for line in file:
-            line=line.strip()
-
-            if not username and line[:4] == "<id>":
-                rvid = line[4:-5]
-
-            if line[:10] == "<username>":
-                username=True
-            else:
-                username=False
-
-            if line[:10] == "<parentid>":
-                parentid=line[10:-11]
-
-            elif line[:11]=='<timestamp>':
-                offset=line[11:-12]
-
-            elif line[:9]=="<comment>":
-                if "BOT - rv" in line:
-                    remList.append(rvid)
-                    remList.append(parentid)
-
-        file.close()
-    return remList
 
 
 
@@ -340,7 +223,7 @@ def wiki2graph(title, remove, new):
     # Apply model. Download full history if necessary
     else:
         if not os.path.isdir('full_histories') or not os.path.isdir("full_histories/"+title.replace(' ', '_')):
-            downloadHistory(title)
+            proc.downloadAndExtractHistory(title)
         (graph, content, model) = applyModel(title, remove)
 
     return graph, content, model
