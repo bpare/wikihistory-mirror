@@ -6,6 +6,8 @@ import networkx as nx
 import timestamp as ts
 import wiki2graph as w2g
 import metric2color as m2c
+import time
+import dateutil.parser
 
 # in minutes
 MONTH=43200
@@ -18,9 +20,9 @@ def tHeight(graph):
     """
     nodeList = list(reversed(list(nx.topological_sort(graph))))
     heightDict = {}
-    stime=graph.node[0]['time']
+    stime=dateutil.parser.parse(graph.node[0]['time'])
     # Might need to redefine end time. Really should be date of download.
-    etime=graph.node[graph.nodes()[-1]]['time']
+    etime=dateutil.parser.parse(graph.node[graph.nodes()[-1]]['time'])
     #T=ts.time_diff(stime, etime)
 
     for node in nodeList:
@@ -29,7 +31,7 @@ def tHeight(graph):
             if type(dst) != int:
                 dst = int(dst.decode("utf-8"))
                 src = int(src.decode("utf-8"))
-            date=graph.node[src]['time']
+            date=dateutil.parser.parse(graph.node[src]['time'])
             #t=ts.time_diff(date, etime)/T
             scale=sigmoid(date, etime)
             height += (heightDict[dst]+scale*graph.edge[src][dst]['dist'])*prob 
@@ -111,24 +113,43 @@ def getHeight(graph, startDate):
 
     return heightDict
 
+'''
+def rewindByOne(graph, model, timestamp):
+    offset = 0
+    for i, (end, pid) in enumerate(model):
+        patch = graph.node[pid]
+        if patch['timestamp'] > timestamp:
+            if
 
 
+def rewindModel(graph, model, timestamp):
+    if timestamp is not None:
+        timestamp = parser.parse(timestamp)
+        rewound = False
+        while not rewound:
+            rewound, model = rewindByOne(graph, model, parsed_timestamp):
+    return model
+'''
 
-def wiki2color(title, remove, new, allrevs, startDate, shade, metricName):
+def wiki2color(title, remove, new, allrevs, startDate, id, shade, metricName):
     """
         Produces a heatmap of the metric height over the most recent revision.
     """
-    (graph, content, model) = w2g.wiki2graph(title, remove, new)
+    graph, content, model = w2g.wiki2graph(title, remove, new)
     if allrevs:
        metricDict=tHeight(graph)
        #metricDict=getAllHeights(graph)
     else:
         metricDict=getHeight(graph, startDate)
    
+    if id is not None:
+        model = readModel(graph, model, id) 
+        content = w2g.readContent(title, id)
+
     if shade:
-        m2c.metric2shades(title, remove, metricName, metricDict)
+        m2c.metric2shades(title, remove, metricName, metricDict, model, content)
     else:
-        m2c.metric2color(title, remove, metricName, metricDict)
+        m2c.metric2color(title, remove, metricName, metricDict, model, content)
 
 
 
@@ -136,7 +157,7 @@ def wiki2color(title, remove, new, allrevs, startDate, shade, metricName):
 def parse_args():
     """parse_args parses sys.argv for wiki2color."""
     
-    parser = argparse.ArgumentParser(usage='%%prog [options] title')
+    parser = argparse.ArgumentParser(usage='%%prog [options] title metricName')
 
     parser.add_argument('title', nargs=1)
     parser.add_argument('-r', '--remove',
@@ -155,10 +176,17 @@ def parse_args():
                       action='store_true', dest='shade', default=False,
                       help='color by score instead of percentile')
     parser.add_argument('metricName', nargs=1)
-
+    parser.add_argument('-i', '--id',
+                      dest='id', nargs=1, default=['None'],
+                      help='revision id to use')
     n=parser.parse_args()
 
-    wiki2color(n.title[0], n.remove, n.new, n.allrevs, n.start[0], n.shade, n.metricName[0])
+    if n.id[0] == 'None':
+        id = None
+    else:
+        id = int(n.id[0])
+
+    wiki2color(n.title[0], n.remove, n.new, n.allrevs, n.start[0], id, n.shade, n.metricName[0])
 
 
 if __name__ == '__main__':

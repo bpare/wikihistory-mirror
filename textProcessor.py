@@ -5,6 +5,7 @@ import os
 import codecs
 import requests
 import wiki_extractor
+from dateutil import parser
 from pymongo import MongoClient
 
 ##
@@ -29,12 +30,20 @@ class WikiIter(object):
         if self.for_remlist:
             cursor = mongo_collection.find({}, {'_id': 1, 'parentid':1, 'comment': 1})
             for item in cursor:
-                yield item['_id'].encode('utf-8'), item['parentid'].encode('utf-8'), item['comment'].encode('utf-8')
+                if not item['parentid']:
+                    parentid = None
+                else:
+                    parentid = item['parentid']
+                if not item['comment']:
+                    comment = ""
+                else:
+                   comment = item['comment']  
+                yield item['_id'], parentid, comment
         else:
             cursor = mongo_collection.find({}, {'_id': 1, 'timestamp':1, 'text': 1}).sort([('timestamp', 1)])
             #.sort([('_id', 1)])
             for item in cursor:
-                yield item['_id'].encode('utf-8'), item['timestamp'].encode('utf-8'), item['text'].encode('utf-8')
+                yield item['_id'], item['timestamp'], item['text']
         
 
 class MyCorpus(object):
@@ -45,6 +54,18 @@ class MyCorpus(object):
         for (rvid, time, doc) in self.wikiiter:
             yield self.dictionary.doc2bow(doc.split())
 
+def enumerateTimestamps(title):
+    mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
+    cursor = mongo_collection.find({}, {'id':1, 'timestamp':1}).sort([('timestamp', 1)])
+    for item in cursor:
+        yield item['id'], item['timestamp']
+
+def checkCollection(title):
+    title = title.replace(" ", "_")
+    database = MongoClient(HOST, PORT)[DB_NAME]
+    if title in database.collection_names():
+        return True
+    return False
 
 def cleanCorpus(title):
     mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
@@ -60,7 +81,9 @@ def downloadAndExtractHistory(title):
         Downloads the full history of Wikipedia page, title, into
             full_histories
     """
-    print "Downloading . . ."
+    print ("Downloading . . .")
+
+    title=title.replace(' ', '_')
 
     mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
     mongo_collection.remove({})
@@ -69,15 +92,16 @@ def downloadAndExtractHistory(title):
     prev_offset=None
     i=0
     while offset!=prev_offset:
-        print "Starting set " + str(i) + " . . ."
+        print ("Starting set " + str(i) + " . . .")
         i+=1
         downloadAndExtractFile(title, offset)
         prev_offset = offset
-        offset = mongo_collection.find_one(sort=[("timestamp", -1)])['timestamp'].encode('utf-8')
+        offset = mongo_collection.find_one(sort=[("timestamp", -1)])['timestamp']
 
 
 def downloadAndExtractFile(title, offset):
-    title=title.replace(' ', '_')
+    if offset != '0':
+        offset = offset.isoformat()
     api = WIKI+ 'w/index.php?title=Special:Export&pages=' + title + \
                 '&offset='+offset+'&limit='+LIMIT+'&action=submit'
 
@@ -112,7 +136,7 @@ def saveAndReturnDictionary(title):
 
     stop_ids=[dictionary.token2id[stopword] for stopword in stoplist 
                 if stopword in dictionary.token2id]
-    once_ids=[tokenid for tokenid, docfreq in dictionary.dfs.iteritems() if docfreq==1]
+    once_ids=[tokenid for tokenid, docfreq in dictionary.dfs.items() if docfreq==1]
     dictionary.filter_tokens(stop_ids+once_ids)
     dictionary.compactify()
 
@@ -125,10 +149,11 @@ def saveAndReturnDictionary(title):
 def readDictionary(title):
     """Loads the gensim dictionary of title
     """
-    title=title.replace(" ", "_")
+    title = title.replace(" ", "_")
+
     file='dictionaries/'+title+'.dict'
     if not os.path.isdir('dictionaries') or not os.path.isfile(file):
-        print "File does not exist"
+        print ("File does not exist")
         return
     return gensim.corpora.Dictionary.load(file)
 
@@ -136,13 +161,16 @@ def readDictionary(title):
 def saveAndReturnCorpus(title, dictionary):
     """Creates a corpus using the edit history of a page
     """
+
+    title = title.replace(' ', '_')
+
     if not os.path.isdir('corpus'):
         os.mkdir('corpus')
 
     wiki = WikiIter(title)
 
     corpus=MyCorpus(wiki.__iter__(), dictionary)
-    file='corpus/' + title.replace(" ", "_")+'.mm'
+    file='corpus/' + title+'.mm'
     gensim.corpora.MmCorpus.serialize(file, corpus)
     return corpus
 
@@ -150,9 +178,10 @@ def saveAndReturnCorpus(title, dictionary):
 def readCorpus(title):
     """
     """
-    file='corpus/' + title.replace(" ", "_")+'.mm'
+    title = title.replace(" ", "_")
+    file='corpus/' + title+'.mm'
     if not os.path.isdir('corpus') or not os.path.isfile(file):
-        print "File does not exist."
+        print ("File does not exist.")
         return
     return gensim.corpora.MmCorpus(file)
 
@@ -160,10 +189,11 @@ def readCorpus(title):
 def saveAndReturnTfidf(title, bow_corpus, normalize):
     """
     """
+    title = title.replace(" ", "_")
     tfidf_model=gensim.models.TfidfModel(bow_corpus, normalize)
     if not os.path.isdir('tfidf'):
         os.mkdir('tfidf')
-    file='tfidf/' + title.replace(" ", "_")+'.tfidf'
+    file='tfidf/' + title+'.tfidf'
     tfidf_model.save(file)
     return tfidf_model
 
@@ -171,9 +201,11 @@ def saveAndReturnTfidf(title, bow_corpus, normalize):
 def loadTfidf(title):
     """
     """
+    title.replace(" ", "_")
+
     file='tfidf/' + title.replace(" ", "_")+'.tfidf'
     if not os.path.isdir('tfidf') or not os.path.isfile(file):
-        print "File does not exist."
+        print ("File does not exist.")
         return
     return gensim.models.TfidfModel.load(file)
 
@@ -181,26 +213,28 @@ def loadTfidf(title):
 def saveAndReturnLsi(title, tfidf, corpus, id2word, num_topics):
     """
     """
-    lsi_model=gensim.models.LsiModel(tfidf[corpus], id2word=id2word, num_topics=num_topics)
+    title = title.replace(" ", "_")
+    lsi_model=gensim.models.LsiModel(tfidf[corpus], num_topics=num_topics)
     if not os.path.isdir('lsi'):
         os.mkdir('lsi')
-    file='lsi/' + title.replace(" ", "_")+'.lsi'
+    file='lsi/' + title + '.lsi'
     lsi_model.save(file)
     return lsi_model
 
 def loadLsi(title):
     """
     """
-    file='lsi/' + title.replace(" ", "_")+'.lsi'
+    title = title.replace(" ", "_")
+    file='lsi/' + title + '.lsi'
     if not os.path.isdir('lsi') or not os.path.isfile(file):
-        print "File does not exist."
+        print ("File does not exist.")
         return
     return gensim.models.LsiModel.load(file)
 
 
 def scoreDoc(title, prev_index, doc, dictionary, tfidf, lsi):
     """
-    """
+    """    
     if prev_index is None:
         index_bow=[dictionary.doc2bow([""])]
         lsi_index=lsi[tfidf[index_bow]]
@@ -223,7 +257,7 @@ def getRemlist(title):
         Gets a list of ids of revisions that are bot reverts
         or that were reverted by bots
     """
-    print "Removing bot rv."
+    print ("Removing bot rv.")
     remList = []
     title=title.replace(" ", "_")
     
@@ -235,3 +269,14 @@ def getRemlist(title):
             remList.append(parentid)
 
     return remList
+
+def readContent(title, id=None):
+    title = title.replace(" ", "_")
+    mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
+    if id is None:
+        content = mongo_collection.find_one({}, sort=[("timestamp", -1)])['text']
+    else:
+        content = mongo_collection.find_one({'_id':id})['text']
+    return content
+
+

@@ -67,6 +67,7 @@ import os.path
 import re  # TODO use regex when it will be standard
 import time
 import json
+from dateutil import parser as date_parser
 from io import StringIO
 from multiprocessing import Queue, Process, Value, cpu_count
 from timeit import default_timer
@@ -535,7 +536,7 @@ class Extractor(object):
         """
         self.id = id
         self.title = title
-        self.timestamp = timestamp
+        self.timestamp = date_parser.parse(timestamp)
         self.comment = comment
         self.parentid = parentid
         self.text = ''.join(lines)
@@ -563,9 +564,7 @@ class Extractor(object):
         }
         # We don't use json.dump(data, out) because we want to be
         # able to encode the string if the output is sys.stdout
-        out_str = json.dumps(json_data, ensure_ascii=False)
-        if out == sys.stdout:   # option -a or -o -
-            out_str = out_str.encode('utf-8')
+        out_str = json.dumps(json_data, ensure_ascii=False, default=json_util.default)
         out.write(out_str)
         out.write('\n')
 
@@ -793,8 +792,8 @@ class Extractor(object):
     maxParameterRecursionLevels = 10
 
     # check for template beginning
-    reOpen = re.compile('(?<!{){{(?!{)', re.DOTALL)
-
+    reOpen = re.compile('(?<!{){{(?!{)', re.DOTALL);
+    # }
 
     def expand(self, wikitext):
         """
@@ -2918,7 +2917,7 @@ def extract_process(opts, i, jobs_queue):
                 text = ''
                 logging.exception('Processing page: %s %s', id, title)
 
-            text_json = json.loads(text)
+            text_json = json.loads(text, object_hook=json_util.object_hook)
             
             mongo_collection.insert(text_json)
 

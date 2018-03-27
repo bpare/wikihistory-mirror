@@ -31,14 +31,12 @@ LIGHTNESS=50
     return colors"""
 
 
-def metric2HUSL(title, remove, metricName, metricDict):
+def metric2HUSL(title, remove, metricName, metricDict, content, model):
     """
         Writes a heatmap of the most recent revision of title as a .html
             file in heatmaps, based on the percentile of the text according
             to metricDict.
     """
-    content = w2g.readContent(title, remove)
-    model = w2g.readModel(title, remove)
     colors=getHue(model, metricDict)
     writeHues(title, remove, metricName, model, content, colors)
 
@@ -50,7 +48,7 @@ def writeHues(title, remove, metricName, model, content, colors):
             dictionary, colors.
         metricName will be part of the file title
     """
-    print "Writing heat map . . ."
+    print ("Writing heat map . . .")
 
     if not os.path.isdir('heatmaps'):
         os.mkdir('heatmaps')
@@ -102,7 +100,7 @@ def colorPercentile(model, metricDict):
         Assigns edit ids in model to colors by percentile based on
             metricDict. Returns a dictionary of colors.
     """
-    print "Assigning colors . . ."
+    print ("Assigning colors . . .")
     
     # Sort by decreasing scores
     a=[(metricDict[x[1]], x[1]) for x in model]
@@ -145,7 +143,7 @@ def writeColors(title, remove, metricName, model, content, colors):
             colors.
         metricName will be part of the file title
     """
-    print "Writing heat map . . ."
+    print ("Writing heat map . . .")
 
     if not os.path.isdir('heatmaps'):
         os.mkdir('heatmaps')
@@ -201,7 +199,7 @@ def bcolorPercentile(model, metricDict):
         Assigns edit ids in model to colors by percentile based on
             metricDict. Returns a dictionary of colors.
     """
-    print "Assigning colors . . ."
+    print ("Assigning colors . . .")
     
     # Sort by decreasing scores
     a=[(metricDict[x[1]], x[1]) for x in model]
@@ -256,7 +254,7 @@ def bwriteColors(title, remove, metricName, model, content, colors):
             colors.
         metricName will be part of the file title
     """
-    print "Writing heat map . . ."
+    print ("Writing heat map . . .")
 
     if not os.path.isdir('heatmaps'):
         os.mkdir('heatmaps')
@@ -316,7 +314,7 @@ def HUSLPercentile(model, metricDict):
         Assigns edit ids in model to colors by percentile based on
             metricDict. Returns a dictionary of colors.
     """
-    print "Assigning colors . . ."
+    print ("Assigning colors . . .")
     
     # Sort by decreasing scores
     a=[(metricDict[x[1]], x[1]) for x in model]
@@ -353,7 +351,7 @@ def colorHUSL(title, remove, metricName, model, content, colors):
             colors.
         metricName will be part of the file title
     """
-    print "Writing heat map . . ."
+    print ("Writing heat map . . .")
 
     if not os.path.isdir('heatmaps'):
         os.mkdir('heatmaps')
@@ -402,14 +400,12 @@ def colorHUSL(title, remove, metricName, model, content, colors):
     colorFile.close()
 
 
-def metric2color(title, remove, metricName, metricDict):
+def metric2color(title, remove, metricName, metricDict, model, content):
     """
         Writes a heatmap of the most recent revision of title as a .html
             file in heatmaps, based on the percentile of the text according
             to metricDict.
     """
-    content = w2g.readContent(title, remove)
-    model = w2g.readModel(title, remove)
     #colors=bcolorPercentile(model, metricDict)
     #bwriteColors(title, remove, metricName, model, content, colors)
     colors=HUSLPercentile(model, metricDict)
@@ -418,7 +414,7 @@ def metric2color(title, remove, metricName, metricDict):
 def percentileMarkup(model, metricDict):
     """
     """
-    print "Assigning colors . . ."
+    print ("Assigning colors . . .")
     
     # Sort by decreasing scores
     a=[(metricDict[x[1]], x[1]) for x in model]
@@ -469,7 +465,7 @@ def percentileMarkup(model, metricDict):
 def writeMarkup(title, remove, metricName, model, content, colors):
     """
     """
-    print "Writing heat map . . ."
+    print ("Writing heat map . . .")
 
     if not os.path.isdir('heatmaps'):
         os.mkdir('heatmaps')
@@ -531,7 +527,7 @@ def writeShades(title, remove, metricName, model, content, colors):
             dictionary, colors.
         metricName will be part of the file title
     """
-    print "Writing heat map . . ."
+    print ("Writing heat map . . .")
 
     if not os.path.isdir('heatmaps'):
         os.mkdir('heatmaps')
@@ -615,13 +611,11 @@ def getrgb(color):
 
 
 
-def metric2shades(title, remove, metricName, metricDict):
+def metric2shades(title, remove, metricName, metricDict, model, content):
     """
         Writes a heatmap of the most recent revision of title as a .html
             file in heatmaps, based on the score in metricDict, rather
             than percentile.
     """
-    content = w2g.readContent(title, remove)
-    model = w2g.readModel(title, remove)
     colors=getShades(model, metricDict)
     writeShades(title, remove, metricName, model, content, colors)

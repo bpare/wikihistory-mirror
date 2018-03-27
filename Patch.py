@@ -54,7 +54,7 @@ class PatchSet:
     @classmethod
     def psdiff(cls, startid, set_id, old, new):
         """
-            Compares 2 vesions of text at a word level to identify 
+            Compares 2 versions of text at a word level to identify 
                 the individual edits (insertions and deletions).
         """
         ptype = None
@@ -64,7 +64,7 @@ class PatchSet:
 
         # Obtain a list of differences between the texts
         diff = difflib.ndiff(old, new)
-        
+
         # Split the differences into Patches
         index = 0
         for line in diff:
@@ -127,7 +127,7 @@ class PatchModel:
         """
             Adds Patch, p, to the model and graph
         """
-        self.graph.add_node(p.pid, setid = p.set_id, time = timestamp, size=p.length)
+        self.graph.add_node(p.pid, setid = p.set_id, time = timestamp.isoformat(), size = p.length, type = p.ptype)
         if not self.model:
             self.model.append((p.end, p.pid))
         
