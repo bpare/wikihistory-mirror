@@ -17,7 +17,7 @@ LIMIT='1000'
 
 
 
-def applyModel(title, remove):
+def applyModel(title, remove, new):
     """
         Applies PatchModel to the history for Wikipedia page, title.
         Returns the full history tranformed into a graph according to the model,
@@ -34,30 +34,31 @@ def applyModel(title, remove):
 
     print ('Setting up distance comparison . . .')
     
-    #TODO find a way of confirming that there's stuff in the db
-    if not os.path.isdir('full_histories') or not os.path.isdir('full_histories/'+title):
-        proc.cleanCorpus(title)
+    #if not os.path.isdir('full_histories') or not os.path.isdir('full_histories/'+title):
+    #    proc.cleanCorpus(title)
 
     # Set up semantic distance comparison
-    if not os.path.isdir('dictionaries') or not os.path.isfile('dictionaries/'+title+'.dict'):
-        dictionary = proc.saveAndReturnDictionary(title)
-    else:
-        dictionary = proc.readDictionary(title)
-    
-    if not os.path.isdir('corpus') or not os.path.isfile('corpus/'+title+'.mm'):
-        corpus = proc.saveAndReturnCorpus(title, dictionary)
-    else:
-        corpus = proc.readCorpus(title)
-    
-    if not os.path.isdir('tfidf') or not os.path.isfile('tfidf/'+title+'.tfidf'):
-        tfidf = proc.saveAndReturnTfidf(title, corpus, True)
-    else:
-        tfidf = proc.loadTfidf(title)
+    if not new:
+        dictionary = (proc.saveAndReturnDictionary(title)
+                      if not os.path.isdir('dictionaries') or not os.path.isfile('dictionaries/'+title+'.dict')
+                      else proc.readDictionary(title))
+        
+        corpus = (proc.saveAndReturnCorpus(title, dictionary)
+                  if not os.path.isdir('corpus') or not os.path.isfile('corpus/'+title+'.mm')
+                  else proc.readCorpus(title))
+        
+        tfidf = (proc.saveAndReturnTfidf(title, corpus, True)
+                 if not os.path.isdir('tfidf') or not os.path.isfile('tfidf/'+title+'.tfidf')
+                 else proc.loadTfidf(title))
 
-    if not os.path.isdir('lsi') or not os.path.isfile('lsi/'+title+'.lsi'):
-        lsi = proc.saveAndReturnLsi(title, tfidf, corpus, dictionary, 300)
+        lsi = (proc.saveAndReturnLsi(title, tfidf, corpus, dictionary, 300)
+               if not os.path.isdir('lsi') or not os.path.isfile('lsi/'+title+'.lsi')
+               else proc.loadLsi(title))
     else:
-        lsi = proc.loadLsi(title)
+        dictionary = proc.saveAndReturnDictionary(title)
+        corpus = proc.saveAndReturnCorpus(title, dictionary)
+        tfidf = proc.saveAndReturnTfidf(title, corpus, True)
+        lsi = proc.saveAndReturnLsi(title, tfidf, corpus, dictionary, 300)
 
 
     # Get the list of vertices to remove
@@ -76,10 +77,7 @@ def applyModel(title, remove):
     model_dict = {}
     first_id = None
     cur_id = None
-    if remove:
-        directory = 'models/'+title+'_rem/'
-    else:
-        directory = 'models/'+title+'/'
+        directory = 'models/'+title+'_rem/' if remove else 'models/'+title+'/'
     if not os.path.isdir(directory):
         os.makedirs(directory)
     for (rvid, timestamp, content) in wikiit.__iter__():
@@ -109,7 +107,7 @@ def applyModel(title, remove):
             prev = content
             model_dict[(rvid)] = model.model
 
-            if len(model_dict) >= 1000:
+            if len(model_dict) >= 50000: #for if this ever needs to get split up
                 with open(directory+title+'|'+first_id+'|'+cur_id+'.pickle', 'wb') as handle:
                     pickle.dump(model_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
                 first_id = None
@@ -118,8 +116,9 @@ def applyModel(title, remove):
     nx.write_gml(model.graph, 'GMLs/'+title+'.txt')
         
     # Write model to file
-    with open(directory+title+'|'+first_id+'|'+cur_id+'.pickle', 'wb') as handle:
-        pickle.dump(model_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    if len(model_dict) > 0:
+        with open(directory+title+'|'+first_id+'|'+cur_id+'.pickle', 'wb') as handle:
+            pickle.dump(model_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
     with open(directory+title+'_cur.pickle', 'wb') as handle:
         pickle.dump(model.model, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -136,10 +135,7 @@ def readGraph(title, remove):
 
     title=title.replace(' ', '_')
 
-    if remove:
-        file = 'GMLs/' + title+'_rem.txt'
-    else:
-        file = 'GMLs/' + title+'.txt'
+    file = 'GMLs/' + title+'_rem.txt' if remove else 'GMLs/' + title+'.txt'
 
     assert os.path.isfile(file), 'Graph file does not exist.'
 
@@ -148,14 +144,19 @@ def readGraph(title, remove):
 
 
 
-def readContent(title, timestamp=None):
+def getContent(title, timestamp=None):
     """
         Reads and returns a string from a file
     """
-    return proc.readContent(title, timestamp)
+    return proc.getContent(title, timestamp)
 
 
-
+def getRaw(title, timestamp=None):
+    """
+        Reads and returns a string from a file
+    """
+    return proc.getRaw(title, timestamp)
+    
 
 def readModel(title, remove, rvid=None):
     """
@@ -165,10 +166,7 @@ def readModel(title, remove, rvid=None):
 
     title = title.replace(' ', '_')
 
-    if remove:
-        directory = 'models/'+title+'_rem/'
-    else:
-        directory = 'models/'+title+'/'
+    directory = 'models/'+title+'_rem/' if remove else 'models/'+title+'/'
 
     if rvid is None:
         filename = directory+title+'_cur.pickle'
@@ -192,20 +190,18 @@ def readModel(title, remove, rvid=None):
 
 
 
-def wiki2graph(title, remove, new):
+def wiki2graph(title, remove, new, download):
     """
         Returns a networkx graph, the content of the latest revision, and the 
             PatchModel for Wikipedia page, title.
         Setting remove to True removes bot reverses and vandalism from the data.
         Setting new to True applies the model whether or not it is cached
     """
-    title = title.replace(' ', '_')
+    title = title.replace(' ', '_').lower()
     file = title+'.txt'
 
-    if remove:
-        model_dir = 'models/'+title+'_rem'
-    else:
-        model_dir = 'models/'+title
+    model_dir = 'models/'+title+'_rem' if remove else = 'models/' + title
+
     # Check if files exist to avoid reapplying model
     if not new and \
         os.path.isdir('GMLs') and os.path.isfile('GMLs/'+file) and \
@@ -219,10 +215,10 @@ def wiki2graph(title, remove, new):
     else:
         if not os.path.isdir('full_histories') or not \
         os.path.isdir('full_histories/'+title) or not \
-        proc.checkCollection(title):
+        proc.checkCollection(title) or download:
             proc.downloadAndExtractHistory(title)
 
-        graph, content, model = applyModel(title, remove)
+        graph, content, model = applyModel(title, remove, new)
 
     return graph, content, model
 
@@ -241,10 +237,13 @@ def parse_args():
     parser.add_argument('-n', '--new',
                       action='store_true', dest='new', default=False,
                       help='reapply model even if cached')
+    parser.add_argument('-d', '--download',
+                      action='store_true', dest='download', default=False,
+                      help='download and extract new data')
 
     n=parser.parse_args()
 
-    wiki2graph(n.title[0], n.remove, n.new)
+    wiki2graph(n.title[0], n.remove, n.new, n.download)
 
 
 if __name__ == '__main__':

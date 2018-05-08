@@ -4,6 +4,7 @@ import os
 import wiki2graph as w2g
 #import husl as col
 import codecs
+import wikitextparser as wtp
 
 
 # Assumes the existence of a dictionary from an applied metric,
@@ -30,7 +31,7 @@ LIGHTNESS=50
 
     return colors"""
 
-
+'''
 def metric2HUSL(title, remove, metricName, metricDict, content, model):
     """
         Writes a heatmap of the most recent revision of title as a .html
@@ -305,7 +306,7 @@ def bwriteColors(title, remove, metricName, model, content, colors):
 
     colorFile.write("</body>\n</html>")
     colorFile.close()
-
+'''
 
 
 
@@ -408,9 +409,89 @@ def metric2color(title, remove, metricName, metricDict, model, content):
     """
     #colors=bcolorPercentile(model, metricDict)
     #bwriteColors(title, remove, metricName, model, content, colors)
+    title = title.replace(' ', '_').lower()
     colors=HUSLPercentile(model, metricDict)
     colorHUSL(title, remove, metricName, model, content, colors)
 
+def colorHUSLwiki(title, remove, metricName, model, content, colors):
+
+    parsed = wtp.parse(content)
+
+    _, length = parsed.span #unclear if valid?
+
+     for template in parsed.templates:
+        span_dict[template.span] = 0
+
+    for wikilink in parsed.wikilinks:
+        count = 0
+        count+=1 for word in wikilink.text.split()
+        span_dict[wikilink.span] = count
+
+    for list in parsed.lists:
+        span_dict[list.span] = 0
+
+    for table in parsed.tables:
+        span_dict[table.span] = 0
+
+    for tag in parsed.tags:
+        #TDO: i think we only care about equations here but make sure
+        if tag.name == 'math' || tag.name == 'code':
+            span_dict[tag.span] = 1
+
+    merged_dict = merge(span_dict, length)
+
+    pos = 0
+    word_count = 0
+    ignore_until = None
+    for line in content.split('\n'):
+        for char in line:
+            word_count += 1 if char == ' '
+            pos += 1
+        pos += 2
+            word_start = pos
+            pos += word.length()
+            word_end = pos
+            if ignore_until:
+                if word_end <= ignore_until:
+                    continue;
+                else:
+                    word_count += 1
+            else:
+                for (span_start, span_end) in ignore_spans:
+                    if span_start >= word_start >= span_end and \
+                            span_start >= word_end >= span_end:
+                        #don't advance count, move on to next word
+                for (span_start, span_end), num_words in 
+
+
+    #if in ignore section, ignore. if in span_dict
+
+
+
+#TODO double check that this is even right lol
+def merge(span_dict, nbins):
+    bins = [None]*nbins
+    for (start, end), value in span_dict:
+        for bin in xrange(start, end):
+            bins[bin] = value if value < bins[bin] or bins[bin] == None
+    def key((i, count)):
+        return count != None
+    index_groups = itertools.groupby(enumerate(bins), key=key)
+    for isnotnone, indices in index_groups:
+        if isnotnone:
+            _, count = indices[0]
+            indices = [i for (i, count) in indices]
+            yield (indices[0], indices[-1]), count
+
+
+def metric2colored_wiki(title, remove, metricName, metricDict, model, content):
+    
+    title = title.replace(' ', '_').lower()
+    colors=HUSLPercentile(model, metricDict)
+    colorHUSL(title, remove, metricName, model, content, colors)
+
+
+'''
 def percentileMarkup(model, metricDict):
     """
     """
@@ -500,7 +581,7 @@ def writeMarkup(title, remove, metricName, model, content, colors):
 
     colorFile.close()
 
-
+'''
 
 def getShades(model, metricDict):
     """
@@ -583,7 +664,7 @@ def getrgb(color):
     crange=color/256
     cval=color%256
 
-    # Loweest scores
+    # Lowest scores
     # White - pink
     if crange==0:
         rgb='rgb(255,'+str(255-cval)+',255)'
@@ -617,5 +698,8 @@ def metric2shades(title, remove, metricName, metricDict, model, content):
             file in heatmaps, based on the score in metricDict, rather
             than percentile.
     """
+    title = title.replace(' ', '_').lower()
     colors=getShades(model, metricDict)
     writeShades(title, remove, metricName, model, content, colors)
+
+

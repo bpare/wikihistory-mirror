@@ -131,11 +131,12 @@ def rewindModel(graph, model, timestamp):
     return model
 '''
 
-def wiki2color(title, remove, new, allrevs, startDate, id, shade, metricName):
+def wiki2color(title, remove, new, download, allrevs, startDate, id, shade, metricName):
     """
         Produces a heatmap of the metric height over the most recent revision.
     """
-    graph, content, model = w2g.wiki2graph(title, remove, new)
+
+    graph, content, model = w2g.wiki2graph(title, remove, new, download)
     if allrevs:
        metricDict=tHeight(graph)
        #metricDict=getAllHeights(graph)
@@ -144,7 +145,7 @@ def wiki2color(title, remove, new, allrevs, startDate, id, shade, metricName):
    
     if id is not None:
         model = readModel(graph, model, id) 
-        content = w2g.readContent(title, id)
+        content = w2g.getContent(title, id)
 
     if shade:
         m2c.metric2shades(title, remove, metricName, metricDict, model, content)
@@ -166,6 +167,9 @@ def parse_args():
     parser.add_argument('-n', '--new',
                       action='store_true', dest='new', default=False,
                       help='reapply model even if cached')
+    parser.add_argument('-d', '--download',
+                      action='store_true', dest='download', default=False,
+                      help='download and extract new data')
     parser.add_argument('-a', '--all',
                       action='store_true', dest='allrevs', default=False,
                       help='include all revisions')
@@ -186,7 +190,7 @@ def parse_args():
     else:
         id = int(n.id[0])
 
-    wiki2color(n.title[0], n.remove, n.new, n.allrevs, n.start[0], id, n.shade, n.metricName[0])
+    wiki2color(n.title[0], n.remove, n.new, n.download, n.allrevs, n.start[0], id, n.shade, n.metricName[0])
 
 
 if __name__ == '__main__':

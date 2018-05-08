@@ -85,9 +85,10 @@ def downloadAndExtractHistory(title):
 
     title=title.replace(' ', '_')
 
-    mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
-    mongo_collection.remove({})
-    mongo_collection.create_index('timestamp')
+    print (title)
+    db = MongoClient(HOST, PORT)[DB_NAME]
+    db.drop_collection(title)
+    db[title].create_index('timestamp')
     offset='0'
     prev_offset=None
     i=0
@@ -96,7 +97,8 @@ def downloadAndExtractHistory(title):
         i+=1
         downloadAndExtractFile(title, offset)
         prev_offset = offset
-        offset = mongo_collection.find_one(sort=[("timestamp", -1)])['timestamp']
+        mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
+        offset = mongo_collection.find_one(sort=[('timestamp', -1)])['timestamp']
 
 
 def downloadAndExtractFile(title, offset):
@@ -126,12 +128,15 @@ def downloadAndExtractFile(title, offset):
 def saveAndReturnDictionary(title):
     """
     """
+
+    title=title.replace(" ", "_")
+
     if not os.path.isdir('dictionaries'):
         os.mkdir('dictionaries')
 
     wiki = WikiIter(title)
     dictionary=gensim.corpora.Dictionary(content.lower().split() 
-            for (rvid, timestamp, content) in wiki.__iter__())
+            for (rvid, timestamp, content) in wiki)
     stoplist=set('for a of the and to in'.split())
 
     stop_ids=[dictionary.token2id[stopword] for stopword in stoplist 
@@ -140,7 +145,6 @@ def saveAndReturnDictionary(title):
     dictionary.filter_tokens(stop_ids+once_ids)
     dictionary.compactify()
 
-    title=title.replace(" ", "_")
     file='dictionaries/'+title+'.dict'
     dictionary.save(file)
     return dictionary 
@@ -169,7 +173,7 @@ def saveAndReturnCorpus(title, dictionary):
 
     wiki = WikiIter(title)
 
-    corpus=MyCorpus(wiki.__iter__(), dictionary)
+    corpus=MyCorpus(wiki, dictionary)
     file='corpus/' + title+'.mm'
     gensim.corpora.MmCorpus.serialize(file, corpus)
     return corpus
@@ -263,20 +267,29 @@ def getRemlist(title):
     
     wiki = WikiIter(title, for_remlist = True)
 
-    for rvid, parentid, comment in wiki.__iter__():
+    for rvid, parentid, comment in wiki:
         if 'BOT - rv' in comment:
             remList.append(rvid)
             remList.append(parentid)
 
     return remList
 
-def readContent(title, id=None):
-    title = title.replace(" ", "_")
+def getContent(title, id=None):
+    title = title.replace(" ", "_").lower()
     mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
     if id is None:
         content = mongo_collection.find_one({}, sort=[("timestamp", -1)])['text']
     else:
         content = mongo_collection.find_one({'_id':id})['text']
+    return content
+
+def getRaw(title, id=None):
+    title = title.replace(" ", "_").lower()
+    mongo_collection = MongoClient(HOST, PORT)[DB_NAME][title]
+    if id is None:
+        content = mongo_collection.find_one({}, sort=[("timestamp", -1)])['raw']
+    else:
+        content = mongo_collection.find_one({'_id':id})['raw']
     return content
 
 

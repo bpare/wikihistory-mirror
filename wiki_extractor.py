@@ -547,7 +547,7 @@ class Extractor(object):
         self.recursion_exceeded_3_errs = 0  # parameter recursion
         self.template_title_errs = 0
 
-    def write_output(self, out, text):
+    def write_output(self, out, raw, text):
         """
         :param out: a memory file
         :param text: the text of the page
@@ -560,7 +560,9 @@ class Extractor(object):
             'timestamp': self.timestamp,
             'comment': self.comment,
             'parentid': self.parentid,
-            'text': "\n".join(text)
+            'text': "\n".join(text),
+            'raw': "\n".join(raw),
+
         }
         # We don't use json.dump(data, out) because we want to be
         # able to encode the string if the output is sys.stdout
@@ -574,11 +576,6 @@ class Extractor(object):
         """
         logging.info('%s\t%s', self.id, self.title)
         
-        # Separate header from text with a newline.
-        if options.toHTML:
-            title_str = '<h1>' + self.title + '</h1>'
-        else:
-            title_str = self.title + '\n'
         # https://www.mediawiki.org/wiki/Help:Magic_words
         colon = self.title.find(':')
         if colon != -1:
@@ -617,15 +614,15 @@ class Extractor(object):
         # $dom = $this->preprocessToDom( $text, $flag );
         # $text = $frame->expand( $dom );
         #
+        raw = text
         text = self.transform(text)
         text = self.wiki2text(text)
         text = compact(self.clean(text))
-        text = [title_str] + text
         
         if sum(len(line) for line in text) < options.min_text_length:
             return
         
-        self.write_output(out, text)
+        self.write_output(out, raw, text)
         
         errs = (self.template_title_errs,
                 self.recursion_exceeded_1_errs,
@@ -2898,7 +2895,7 @@ def extract_process(opts, i, jobs_queue):
 
     #createLogger(True, True)
     out = StringIO()                 # memory buffer
-    
+
     mongo_db = MongoClient(HOST, PORT)[DB_NAME]
 
     while True:
@@ -2906,19 +2903,19 @@ def extract_process(opts, i, jobs_queue):
         if job:
             id, title, timestamp, comment, parentid, page, page_num = job
 
-            mongo_collection = mongo_db[title.replace(' ', '_')]
+            mongo_collection = mongo_db[title.replace(' ', '_').lower()]
 
             try:
                 e = Extractor(*job[:6]) # (id, title, timestamp, comment, parentid, page)
                 page = None              # free memory
-                e.extract(out)
-                text = out.getvalue()
+                e.extract(out, out2)
+                raw = out.getvalue()
+                processed = out2.getvalue()
             except:
                 text = ''
                 logging.exception('Processing page: %s %s', id, title)
 
-            text_json = json.loads(text, object_hook=json_util.object_hook)
-            
+            text_json = json.loads(processed, object_hook=json_util.object_hook)
             mongo_collection.insert(text_json)
 
             out.truncate(0)
