@@ -445,6 +445,7 @@ def colorHUSLwiki(title, remove, metricName, model, content, colors):
     ignore_until = None
     for line in content.split('\n'):
         for char in line:
+            
             word_count += 1 if char == ' '
             pos += 1
         pos += 2
