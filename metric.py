@@ -10,10 +10,11 @@ import time
 import dateutil.parser
 
 # in minutes
+DAY = 1440
 MONTH=43200
 YEAR=525600
 
-def tHeight(graph):
+def tHeight(graph, half_life):
     """
         Returns a dictionary of the vertices and their weighted heights 
             from the first vertices at or after startDate.
@@ -33,7 +34,7 @@ def tHeight(graph):
                 src = int(src.decode("utf-8"))
             date=dateutil.parser.parse(graph.node[src]['time'])
             #t=ts.time_diff(date, etime)/T
-            scale=sigmoid(date, etime)
+            scale=exp_decay_with_velocity(date, etime, half_life)
             height += (heightDict[dst]+scale*graph.edge[src][dst]['dist'])*prob 
 
         if type(node)!=int:
@@ -59,7 +60,12 @@ def sigmoid(date, etime):
     #et=math.exp(15*(0.5-t))
     #return 1.0/(1+et)
 
+def exp_decay_with_velocity(date, etime, half_life):
 
+    half_life = half_life*DAY
+    diff=ts.time_diff(date, etime)
+    s = 1 / diff ** (-math.log(2)*diff/half_life)
+    return s
 
 
 def getAllHeights(graph):
@@ -131,14 +137,14 @@ def rewindModel(graph, model, timestamp):
     return model
 '''
 
-def wiki2color(title, remove, new, download, allrevs, startDate, id, shade, metricName):
+def wiki2color(title, remove, new, download, allrevs, startDate, id, shade, metricName, half_life):
     """
         Produces a heatmap of the metric height over the most recent revision.
     """
 
     graph, content, model = w2g.wiki2graph(title, remove, new, download)
     if allrevs:
-       metricDict=tHeight(graph)
+       metricDict=tHeight(graph, half_life)
        #metricDict=getAllHeights(graph)
     else:
         metricDict=getHeight(graph, startDate)
@@ -183,6 +189,10 @@ def parse_args():
     parser.add_argument('-i', '--id',
                       dest='id', nargs=1, default=['None'],
                       help='revision id to use')
+    parser.add_argument('-h', '--half_life',
+                  dest='half_life', nargs=1, default=['7'],
+                  help='half-life in days of the height fall-off function')
+
     n=parser.parse_args()
 
     if n.id[0] == 'None':
@@ -190,7 +200,7 @@ def parse_args():
     else:
         id = int(n.id[0])
 
-    wiki2color(n.title[0], n.remove, n.new, n.download, n.allrevs, n.start[0], id, n.shade, n.metricName[0])
+    wiki2color(n.title[0], n.remove, n.new, n.download, n.allrevs, n.start[0], id, n.shade, n.metricName[0], n.half_life[0])
 
 
 if __name__ == '__main__':

@@ -39,7 +39,7 @@ def applyModel(title, remove, new):
 
     # Set up semantic distance comparison
     if not new:
-        dictionary = (proc.saveAndReturnDictionary(title)
+        dictionary = (proc.saveAndReturnDictionary(title, remove)
                       if not os.path.isdir('dictionaries') or not os.path.isfile('dictionaries/'+title+'.dict')
                       else proc.readDictionary(title))
         
@@ -62,17 +62,17 @@ def applyModel(title, remove, new):
 
 
     # Get the list of vertices to remove
+    """
     if remove:
         remList = proc.getRemlist(title)
-       
+    """
 
     print ('Applying model . . .')
 
     model = PatchModel()
     prev = ''
     pid=0
-    wikiit=proc.WikiIter(title)
-    prev_index = None
+    wikiit=proc.WikiIter(title, remove)
     set_id = 0
     model_dict = {}
     first_id = None
@@ -83,17 +83,18 @@ def applyModel(title, remove, new):
     for (rvid, timestamp, content) in wikiit.__iter__():
        
         # Apply to the PatchModel and write dependencies to graph.
+        """
         if remove and rvid in remList:
             remList.remove(rvid)
-        
+        """
+
         else:
             if first_id is None:
                 first_id = rvid
             cur_id = rvid
             # Get semantic distance
-            sims, prev_index = proc.scoreDoc(title, prev_index, content, dictionary, tfidf, lsi)
-            
-            dists = [1-sim for sim in sims]
+            dist = 1 - proc.scoreDoc(title, prev, content, dictionary, tfidf, lsi)[0][1]
+
             # Apply PatchModel
             #content=content.encode('ascii', 'replace')
             content_split=content.split()
@@ -102,7 +103,7 @@ def applyModel(title, remove, new):
             pid+=len(ps.patches)
             set_id += 1
             for p in ps.patches:
-                model.apply_patch(p, timestamp, dists) #list of out-edges from rev
+                model.apply_patch(p, timestamp, dist) #list of out-edges from rev
             
             prev = content
             model_dict[(rvid)] = model.model

@@ -21,12 +21,15 @@ LIMIT='1000'
 
 class WikiIter(object):
 
-    def __init__(self, title, for_remlist = False):
+    def __init__(self, title, remove):
         self.title = title
-        self.for_remlist = for_remlist
+        self.remove = remove
+        self.cur = None
+        self.next = None
 
     def __iter__(self):
         mongo_collection = MongoClient(HOST, PORT)[DB_NAME][self.title]
+        """
         if self.for_remlist:
             cursor = mongo_collection.find({}, {'_id': 1, 'parentid':1, 'comment': 1})
             for item in cursor:
@@ -40,11 +43,24 @@ class WikiIter(object):
                    comment = item['comment']  
                 yield item['_id'], parentid, comment
         else:
-            cursor = mongo_collection.find({}, {'_id': 1, 'timestamp':1, 'text': 1}).sort([('timestamp', 1)])
-            #.sort([('_id', 1)])
-            for item in cursor:
-                yield item['_id'], item['timestamp'], item['text']
-        
+         """
+        cursor = mongo_collection.find({}, {'_id': 1, 'timestamp':1, 'text': 1}).sort([('timestamp', 1)])
+        #.sort([('_id', 1)])
+        skip_next = False
+        for item in cursor:
+            self.cur = self.next
+            self.next = item
+            if self.cur is None:
+                continue
+            if self.remove and 'BOT - rv' in self.next['comment']
+                skip_next = True
+                continue
+            if skip_next is True:
+                skip_next == False
+                continue
+            yield self.cur['_id'], self.cur['timestamp'], self.cur['text']
+        #last item
+        yield self.next['_id'], self.next['timestamp'], self.next['text']
 
 class MyCorpus(object):
     def __init__(self, wikiiter, dictionary):
@@ -125,7 +141,7 @@ def downloadAndExtractFile(title, offset):
     wiki_extractor.process_dump(cachefile, None, None)
 
 
-def saveAndReturnDictionary(title):
+def saveAndReturnDictionary(title, remove):
     """
     """
 
@@ -134,7 +150,7 @@ def saveAndReturnDictionary(title):
     if not os.path.isdir('dictionaries'):
         os.mkdir('dictionaries')
 
-    wiki = WikiIter(title)
+    wiki = WikiIter(title, remove)
     dictionary=gensim.corpora.Dictionary(content.lower().split() 
             for (rvid, timestamp, content) in wiki)
     stoplist=set('for a of the and to in'.split())
@@ -171,7 +187,7 @@ def saveAndReturnCorpus(title, dictionary):
     if not os.path.isdir('corpus'):
         os.mkdir('corpus')
 
-    wiki = WikiIter(title)
+    wiki = WikiIter(title, remove)
 
     corpus=MyCorpus(wiki, dictionary)
     file='corpus/' + title+'.mm'
@@ -236,8 +252,7 @@ def loadLsi(title):
     return gensim.models.LsiModel.load(file)
 
 
-def scoreDoc(title, prev_index, doc, dictionary, tfidf, lsi):
-    """
+def scoreDoc(title, index, doc, dictionary, tfidf, lsi):
     """    
     if prev_index is None:
         index_bow=[dictionary.doc2bow([""])]
@@ -255,7 +270,22 @@ def scoreDoc(title, prev_index, doc, dictionary, tfidf, lsi):
     sims=prev_index[lsi_doc]
     prev_index.add_documents([lsi_doc])
     return sims, prev_index
+    """
+    doc_bow=dictionary.doc2bow(doc.lower().split())
+    index_bow=[dictionary.doc2bow(index.lower().split())]
 
+
+    lsi_doc=lsi[tfidf[doc_bow]]
+    lsi_index=lsi[tfidf[index_bow]]
+
+    if not os.path.isdir('indexes'):
+        os.mkdir('indexes')
+    # index has to be a corpus, does not have to be the training corpus
+    index=gensim.similarities.Similarity('indexes/'+title, lsi_index, 300)
+    sims=index[lsi_doc]
+    return(list(enumerate(sims)))
+
+"""
 def getRemlist(title):
     """
         Gets a list of ids of revisions that are bot reverts
@@ -273,6 +303,7 @@ def getRemlist(title):
             remList.append(parentid)
 
     return remList
+"""
 
 def getContent(title, id=None):
     title = title.replace(" ", "_").lower()
