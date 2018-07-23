@@ -5,6 +5,7 @@ import wiki2graph as w2g
 #import husl as col
 import codecs
 import wikitextparser as wtp
+from xml.sax import saxutils as su
 
 
 # Assumes the existence of a dictionary from an applied metric,
@@ -415,66 +416,84 @@ def metric2color(title, remove, metricName, metricDict, model, content):
 
 def colorHUSLwiki(title, remove, metricName, model, content, colors):
 
-    parsed = wtp.parse(content)
 
-    _, length = parsed.span #unclear if valid?
+    text = su.unescape(content)
+    parsed = wtp.parse(text)
 
-     for template in parsed.templates:
-        span_dict[template.span] = 0
+    _, parsed_length = parsed.span 
 
-    for wikilink in parsed.wikilinks:
+    wikilinks = parsed.wikilinks
+    external_links = parsed.external_links
+    tags = parsed.tags()
+
+    for w in parsed.wikilinks:
         count = 0
-        count+=1 for word in wikilink.text.split()
-        span_dict[wikilink.span] = count
+        count+=1 for word in w.text.split()
+        span_dict[w.span] = count
 
-    for list in parsed.lists:
-        span_dict[list.span] = 0
+    for t in parsed.templates:
+        span_dict[t.span] = 0
 
-    for table in parsed.tables:
-        span_dict[table.span] = 0
+    for t in parsed.tables:
+        span_dict[t.span] = 0
 
-    for tag in parsed.tags:
-        #TDO: i think we only care about equations here but make sure
+    for l in parsed.lists():
+        span_dict[l.span] = 0
+
+    for c in parsed.comments:
+        span_dict[c.span] = 0
+
+    merged_dict = merge_down(span_dict, length)
+
+    for tag in parsed.tags():
         if tag.name == 'math' || tag.name == 'code':
-            span_dict[tag.span] = 1
+            aux_span_dict[tag.span] = 1
+        else 
+            aux_span_dict[tag.span] = 0
 
-    merged_dict = merge(span_dict, length)
+    for e in parsed.external_links:
+        count = 0
+        count+=1 for word in e.text.split()
+        span_dict[e.span] = count
+
+    merged_dict += merge_up(aux_span_dict, length)
+
+    merged_dict = merge_down(merged_dict, length)
 
     pos = 0
     word_count = 0
-    ignore_until = None
-    for line in content.split('\n'):
-        for char in line:
+
+    for char, next_char in text:
+        #if inside merged_dict span, slide forward
+
+        #insert color
+
+        #if char is ' ' or (char, next_char) are '\n' increase word count
+
+        #increase pos
             
-            word_count += 1 if char == ' '
-            pos += 1
-        pos += 2
-            word_start = pos
-            pos += word.length()
-            word_end = pos
-            if ignore_until:
-                if word_end <= ignore_until:
-                    continue;
-                else:
-                    word_count += 1
-            else:
-                for (span_start, span_end) in ignore_spans:
-                    if span_start >= word_start >= span_end and \
-                            span_start >= word_end >= span_end:
-                        #don't advance count, move on to next word
-                for (span_start, span_end), num_words in 
-
-
-    #if in ignore section, ignore. if in span_dict
-
 
 
 #TODO double check that this is even right lol
-def merge(span_dict, nbins):
+def merge_down(span_dict, nbins):
     bins = [None]*nbins
     for (start, end), value in span_dict:
         for bin in xrange(start, end):
             bins[bin] = value if value < bins[bin] or bins[bin] == None
+    def key((i, count)):
+        return count != None
+    index_groups = itertools.groupby(enumerate(bins), key=key)
+    for isnotnone, indices in index_groups:
+        if isnotnone:
+            _, count = indices[0]
+            indices = [i for (i, count) in indices]
+            yield (indices[0], indices[-1]), count
+
+def merge_up(span_dict, nbins):
+    bins = [None]*nbins
+    for (start, end), value in span_dict:
+        for bin in xrange(start, end):
+            bins[bin] = value if value > bins[bin] or bins[bin] == None
     def key((i, count)):
         return count != None
     index_groups = itertools.groupby(enumerate(bins), key=key)

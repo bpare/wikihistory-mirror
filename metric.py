@@ -61,10 +61,14 @@ def sigmoid(date, etime):
     #return 1.0/(1+et)
 
 def exp_decay_with_velocity(date, etime, half_life):
-
+    
+    lowpercent=0.01
     half_life = half_life*DAY
     diff=ts.time_diff(date, etime)
-    s = 1 / diff ** (-math.log(2)*diff/half_life)
+    s = 1 ** (-math.log(2)*diff/half_life)
+    if s < lowpercent:
+        s = lowpercent
+    s = s / diff
     return s
 
 
