@@ -1,7 +1,12 @@
+#!/usr/bin/python
+
 from bs4 import BeautifulSoup
 import re
 import os.path
 def addID(soup,title):
+    """ Here we are modifying the original HTML
+        files to include correct headers and IDs for styling."""
+    
     doc = '''
         <!DOCTYPE html>
 
